@@ -23,6 +23,7 @@ struct DeviceRecord: Identifiable {
     var advertisement: AdvertisementInfo
     var connectionState: DeviceConnectionState
     var virtualHID: VirtualHIDDevice?
+    var dsuActive: Bool = false
     var serial: String? = nil
     var firmware: FirmwareInfo? = nil
     var calibration = ControllerCalibration()

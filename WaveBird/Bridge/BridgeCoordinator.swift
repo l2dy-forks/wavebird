@@ -65,6 +65,8 @@ final class BridgeCoordinator {
     var joyConPairVHIDActive: Bool = false
     // Synthetic profile used for the merged Joy-Con pair's output identity.
     let joyConPairProfile = JoyConPairProfile()
+    let dsuOutput: DSUOutput
+    var outputBackend: OutputBackend { dsuOutput.backend }
 
     func advanceAwaitingProfileSelection() {
         awaitingProfileSelectionID = devices.first { $0.value.awaitingProfileSelection }?.key
@@ -244,6 +246,7 @@ final class BridgeCoordinator {
         self.transports = transports
         self.catalog = catalog
         self.mappingProfiles = MappingProfileStore(catalog: catalog)
+        self.dsuOutput = DSUOutput()
         let stored = UserDefaults.standard.string(forKey: Self.outputModeDefaultsKey)
         self.defaultOutputModeID = stored.flatMap { catalog.entry(id: $0)?.id } ?? catalog.firstAllowListedID
         self.knownControllers = Self.loadKnownControllers()
