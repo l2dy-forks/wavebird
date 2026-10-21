@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let launch = LaunchAtLoginService()
 
     private static let hideDockIconKey = "WaveBird.hideDockIcon"
+    private var defaultsObserver: NSObjectProtocol?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         let hideDock = UserDefaults.standard.bool(forKey: Self.hideDockIconKey)
@@ -28,10 +29,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        selector: #selector(windowWillClose(_:)),
                        name: NSWindow.willCloseNotification,
                        object: nil)
-        nc.addObserver(self,
-                       selector: #selector(defaultsDidChange(_:)),
-                       name: UserDefaults.didChangeNotification,
-                       object: nil)
+        defaultsObserver = nc.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            // UserDefaults posts on the thread that changed the defaults; hop
+            // explicitly because AppDelegate and NSApp are main-actor isolated.
+            Task { @MainActor [weak self] in
+                self?.reevaluateActivationPolicy()
+            }
+        }
 
         // Sleep/wake post to the workspace's own center, not NotificationCenter.default.
         let wsnc = NSWorkspace.shared.notificationCenter
@@ -76,10 +84,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { [self] in
             reevaluateActivationPolicy()
         }
-    }
-
-    @objc private func defaultsDidChange(_ n: Notification) {
-        reevaluateActivationPolicy()
     }
 
     @objc private func handleWillSleep(_ n: Notification) {
