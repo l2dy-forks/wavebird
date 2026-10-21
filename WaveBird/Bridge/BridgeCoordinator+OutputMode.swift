@@ -36,17 +36,39 @@ extension BridgeCoordinator {
     }
 
     func activateOutput(for id: DeviceID, modeID: String) async {
-        guard let record = devices[id],
-              let (vhid, session) = makeVirtualHID(for: record, modeID: modeID) else {
-            await failVirtualHID(for: id)
+        guard let record = devices[id] else { return }
+        dsuOutput.release(device: id)
+        devices[id]?.dsuActive = false
+        if outputBackend == .virtualHID {
+            guard let (vhid, session) = makeVirtualHID(for: record, modeID: modeID) else {
+                await failVirtualHID(for: id)
+                return
+            }
+            await vhid.activate()
+            devices[id]?.virtualHID = vhid
+            devices[id]?.session = session
+            devices[id]?.activeOutputModeID = modeID
+            startDispatch(for: id)
+            await applySecondaryInputs(for: id, modeID: modeID)
             return
         }
-        await vhid.activate()
-        devices[id]?.virtualHID = vhid
-        devices[id]?.session = session
+        activateDSUOutput(for: id, modeID: modeID)
+    }
+
+    func activateDSUOutput(for id: DeviceID, modeID: String) {
+        guard let record = devices[id] else { return }
+        let identity = record.serial ?? record.id.raw.uuidString
+        let attached = dsuOutput.attach(.solo(identity), devices: [id])
+        if rumbleRefreshBoxes[id] == nil { rumbleRefreshBoxes[id] = RumbleRefreshBox() }
+        devices[id]?.virtualHID = nil
+        devices[id]?.session = nil
+        devices[id]?.dsuActive = attached
         devices[id]?.activeOutputModeID = modeID
-        startDispatch(for: id)
-        await applySecondaryInputs(for: id, modeID: modeID)
+        if attached {
+            startDispatch(for: id)
+        } else {
+            stderrLog("[dsu] no free slot for \(identity)")
+        }
     }
 
     func dismissProfilePicker() async {
@@ -84,8 +106,11 @@ extension BridgeCoordinator {
         guard devices[id]?.outputModeID != profile.baseModeID else { return }
         devices[id]?.outputModeID = profile.baseModeID
         UserDefaults.standard.set(profile.baseModeID, forKey: BridgeCoordinator.outputModeDefaultsKey)
-        guard devices[id]?.virtualHID != nil else { return }
-        await republishVirtualHID(for: id, modeID: profile.baseModeID)
+        if devices[id]?.virtualHID != nil {
+            await republishVirtualHID(for: id, modeID: profile.baseModeID)
+        } else if devices[id]?.dsuActive == true {
+            devices[id]?.activeOutputModeID = profile.baseModeID
+        }
     }
 
     // Insert or replace a KnownController entry. isPaired: true after a

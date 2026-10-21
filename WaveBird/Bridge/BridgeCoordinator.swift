@@ -15,24 +15,10 @@ final class BridgeCoordinator {
     /// Non-nil when a transport is unavailable (e.g. Bluetooth is off).
     /// Cleared when the transport becomes available again.
     var transportUnavailableReason: String?
-    /// Non-nil when virtual-controller output is blocked. Drives the
-    /// permission banner in the main window and menu bar. Set only by
-    /// failVirtualHID (observed VHID creation failures) and cleared by any
-    /// successful creation (makeVirtualHID, or activateJoyConPair for the
-    /// merged pair) — the TCC post-event check is NOT trusted as a
-    /// standalone signal (it reports not-granted on machines where the
-    /// Accessibility box is ticked and the VHID works fine); it only
-    /// refines the failure message.
+    /// Legacy permission-banner state for manually selected virtual-HID output.
+    /// The default DSU path never requests Accessibility or sets this value.
     var hidAccessIssue: HIDAccessIssue?
 
-    // Per-peripheral auto-connect suppression after a VHID creation failure,
-    // set by failVirtualHID and checked in the .discovered handler. Without
-    // it the forced disconnect + re-advertisement reconnects in a tight loop.
-    // Cleared wholesale when the app comes forward, and per-device by an
-    // expiry task armed in failVirtualHID (accessory mode never gets the
-    // activation clear). Both clears restart discovery — see
-    // rescanAfterVHIDFailureCooldown — so recovery doesn't depend on a fresh
-    // advertisement CoreBluetooth may never re-report.
     @ObservationIgnored
     var vhidFailureCooldowns: [DeviceID: ContinuousClock.Instant] = [:]
 
@@ -41,6 +27,7 @@ final class BridgeCoordinator {
         vhidFailureCooldowns.removeAll()
         Task { await rescanAfterVHIDFailureCooldown() }
     }
+
     var pairingPrompt: PairingPrompt?
     // The device whose ProfilePickerSheet is currently being shown. Updated via
     // advanceAwaitingProfileSelection() — multiple controllers reaching .ready at
@@ -51,17 +38,15 @@ final class BridgeCoordinator {
     // when the partner arrives (pair forms) or the lone Joy-Con disconnects.
     var joyConWaitingForPartnerID: DeviceID?
     // The currently-active L+R Joy-Con pair, if both sides are .ready. Owns
-    // the merged VirtualHIDDevice + session + last-known per-side state. Not
+    // the merged output + session + last-known per-side state. Not
     // @ObservationIgnored: listEntries and the row UI depend on the slot's
     // nil/non-nil transition. (Mutations of the pair instance itself — e.g.
-    // assigning .virtualHID — aren't observed; the activation flow only
-    // installs the pair after the VHID is built, so the slot's non-nil state
-    // implies a live VHID.)
+    // assigning .virtualHID / .dsuActive — aren't observed; the activation
+    // flow toggles joyConPairOutputActive explicitly for UI updates.
     var joyConPair: JoyConPair?
-    // Mirrors joyConPair?.virtualHID != nil for the UI's activity indicator.
-    // Class-instance reads aren't observed; we set this flag explicitly inside
-    // activateJoyConPair / tearDownJoyConPair so the row redraws when the
-    // merged VHID comes up or goes down.
+    // Class-instance reads aren't observed; set explicitly when the pair's
+    // selected output backend activates or tears down.
+    var joyConPairOutputActive: Bool = false
     var joyConPairVHIDActive: Bool = false
     // Synthetic profile used for the merged Joy-Con pair's output identity.
     let joyConPairProfile = JoyConPairProfile()
@@ -298,13 +283,17 @@ final class BridgeCoordinator {
             var viewRecord = record
             viewRecord.virtualHID = nil
             viewRecord.session = nil
-            entries.append(ListEntry(id: id, live: viewRecord, vhidActive: record.virtualHID != nil, paired: paired))
+            entries.append(ListEntry(id: id, live: viewRecord,
+                                     vhidActive: record.virtualHID != nil,
+                                     dsuActive: record.dsuActive,
+                                     paired: paired))
         }
         let offline = knownControllers.values
             .filter { !claimedSerials.contains($0.serial) }
             .sorted { $0.lastSeenAt > $1.lastSeenAt }
         for paired in offline {
-            entries.append(ListEntry(id: paired.serial, live: nil, vhidActive: false, paired: paired))
+            entries.append(ListEntry(id: paired.serial, live: nil, vhidActive: false,
+                                     dsuActive: false, paired: paired))
         }
         return entries
     }
@@ -321,8 +310,8 @@ final class BridgeCoordinator {
     }
 
     // Exposed for the UI: when non-nil and the row's record is the pair's L,
-    // render "Joy-Con 2 (L + R)" and draw the active VHID indicator off this
-    // pair's virtualHID instead of the per-record one.
+    // render the merged name and draw output activity from the shared pair
+    // instead of the per-record state.
     var activeJoyConPair: JoyConPair? { joyConPair }
 
     // Name to show for a list/menu entry. The L side standing in for an active
@@ -378,6 +367,7 @@ final class BridgeCoordinator {
     }
 
     deinit {
+        dsuOutput.stop()
         consumerTask?.cancel()
         idleSweepTask?.cancel()
         for task in dispatchTasks.values { task.cancel() }
@@ -390,6 +380,9 @@ final class BridgeCoordinator {
     func start() async {
         LegacyMigrations.dropLegacyAxisSettings()
         guard consumerTask == nil else { return }
+        if !dsuOutput.start() {
+            stderrLog("[dsu] output unavailable; controller connections will continue")
+        }
         activity = ActivityToken(ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated, .latencyCritical],
             reason: "Controller input bridging"
@@ -491,4 +484,3 @@ final class BridgeCoordinator {
     }
 
 }
-

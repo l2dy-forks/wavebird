@@ -239,9 +239,9 @@ struct ContentView: View {
                         LiveControllerRow(
                             record: record,
                             paired: entry.paired,
-                            isVHIDActive: entry.vhidActive,
+                            isOutputActive: entry.outputActive,
                             displayNameOverride: isPairLeft ? coordinator.listDisplayName(for: entry) : nil,
-                            vhidActiveOverride: isPairLeft ? coordinator.joyConPairVHIDActive : nil,
+                            outputActiveOverride: isPairLeft ? coordinator.joyConPairVHIDActive : nil,
                             onSplit: isPairLeft ? {
                                 Task { await coordinator.splitJoyConPair() }
                                 // The detail window keys off this entry's L serial.

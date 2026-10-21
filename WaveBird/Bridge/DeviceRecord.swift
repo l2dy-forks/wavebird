@@ -58,7 +58,10 @@ struct ListEntry: Identifiable, Sendable {
     // would pin it alive long after disconnect. Active state travels as a Bool.
     let live: DeviceRecord?
     let vhidActive: Bool
+    let dsuActive: Bool
     let paired: KnownController?
+
+    var outputActive: Bool { vhidActive || dsuActive }
 
     var displayName: String {
         paired?.displayName ?? live?.profile.name ?? "Unknown controller"

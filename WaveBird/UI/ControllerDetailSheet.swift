@@ -58,7 +58,7 @@ struct ControllerDetailSheet: View {
             : (paired?.displayName ?? live?.profile.name ?? "Controller")
         let iconTint: Color = isPair
             ? (coordinator.joyConPairVHIDActive ? .nintendoRed : .secondary)
-            : (entry.vhidActive
+            : (entry.outputActive
                 ? (live?.firmware?.controllerType == 0x03 ? .gamecubeIndigo : .nintendoRed)
                 : .secondary)
 

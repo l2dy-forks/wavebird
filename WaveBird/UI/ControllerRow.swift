@@ -3,23 +3,21 @@ import SwiftUI
 struct LiveControllerRow: View {
     let record: DeviceRecord
     let paired: KnownController?
-    // VHID-active state, resolved by the coordinator from the live record. The
-    // row never sees the VirtualHIDDevice itself (DeviceRecord hands the view a
-    // wrapper-free copy) so a retained row can't pin the CoreHID device alive
-    // past disconnect.
-    let isVHIDActive: Bool
+    // Output-active state is resolved from the live record. The row never sees
+    // the VirtualHIDDevice itself, so a retained view can't pin it past disconnect.
+    let isOutputActive: Bool
     // Overrides used when this row stands in for a Joy-Con 2 pair: the L
     // record is the visible row and these substitutions reflect the merged
-    // identity + the shared VHID state.
+    // identity + the shared output state.
     var displayNameOverride: String? = nil
-    var vhidActiveOverride: Bool? = nil
+    var outputActiveOverride: Bool? = nil
     var onSplit: (() -> Void)? = nil
     let onSelect: () -> Void
     let onDisconnect: () -> Void
     var onForget: (() -> Void)? = nil
 
-    private var vhidActive: Bool {
-        vhidActiveOverride ?? isVHIDActive
+    private var outputActive: Bool {
+        outputActiveOverride ?? isOutputActive
     }
 
     private var displayName: String {
@@ -33,7 +31,7 @@ struct LiveControllerRow: View {
                     .font(.title3)
                     .foregroundStyle(.white)
                     .frame(width: 30, height: 30)
-                    .background(vhidActive ? record.firmware?.controllerType == 0x03 ? .gamecubeIndigo : .nintendoRed : Color.secondary)
+                    .background(outputActive ? record.firmware?.controllerType == 0x03 ? .gamecubeIndigo : .nintendoRed : Color.secondary)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {

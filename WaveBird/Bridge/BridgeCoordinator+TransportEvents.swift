@@ -1,8 +1,8 @@
 import Foundation
 
 extension BridgeCoordinator {
-    // Solo (own-VHID) dispatch. Runs detached, off the main actor: the parse,
-    // buildReport, and vhid.dispatch all happen on the cooperative pool so
+    // Solo output dispatch. Runs detached, off the main actor: parsing and
+    // output delivery happen on the cooperative pool so
     // input processing doesn't share a thread with the UI. We snapshot the
     // stable per-connection values (vhid/session/profile/calibration) into
     // locals here on the main actor — calibration is finalized by .ready (init
@@ -13,9 +13,10 @@ extension BridgeCoordinator {
     func startDispatch(for id: DeviceID) {
         dispatchTasks[id]?.cancel()
         stateContinuations[id]?.finish()
-        guard let record = devices[id],
-              let vhid = record.virtualHID,
-              let session = record.session else { return }
+        guard let record = devices[id], !isJoyConPaired(id) else { return }
+        let vhid = record.virtualHID
+        let session = record.session
+        guard record.dsuActive || (vhid != nil && session != nil) else { return }
         let profile = record.profile
         let calibration = record.calibration
         let mapBox = mappingSpecBoxes[id] ?? {
@@ -29,6 +30,10 @@ extension BridgeCoordinator {
         let xboxGIP = (record.activeOutputModeID == "xboxSeries") ? xboxOutputSettings(for: record) : nil
         let kind = id.transport
         let tracker = activityTracker
+        let dsuOutput = self.dsuOutput
+        let dsuActive = record.dsuActive
+        let dsuKey = dsuActive ? dsuOutput.key(for: id) : nil
+        guard !dsuActive || dsuKey != nil else { return }
         let (stream, continuation) = AsyncStream.makeStream(of: RawReport.self, bufferingPolicy: .bufferingNewest(1))
         stateContinuations[id] = continuation
         dispatchTasks[id] = Task.detached(priority: .userInitiated) {
@@ -44,6 +49,11 @@ extension BridgeCoordinator {
                 // Idle tracking: only a changed input fingerprint counts as activity.
                 let sig = state.idleSignature
                 if sig != lastSig { lastSig = sig; tracker.touch(id, at: .now) }
+                if let dsuKey {
+                    dsuOutput.publish(state, for: dsuKey)
+                    continue
+                }
+                guard let vhid, let session else { continue }
                 let gipSnap = xboxGIP?.snapshot()
                 // Mask the Guide bit from report 0x01 when "Send Guide to macOS"
                 // is off. Only the primary report is masked; the GIP 0x07 path
@@ -237,6 +247,8 @@ extension BridgeCoordinator {
                     joyConWaitingForPartnerID = survivor
                 }
             }
+            dsuOutput.release(device: id)
+            devices[id]?.dsuActive = false
             if joyConWaitingForPartnerID == id {
                 joyConWaitingForPartnerID = nil
             }
