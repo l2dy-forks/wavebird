@@ -40,17 +40,18 @@ extension BridgeCoordinator {
         dsuOutput.release(device: id)
         devices[id]?.dsuActive = false
         if outputBackend == .virtualHID {
-            guard let (vhid, session) = makeVirtualHID(for: record, modeID: modeID) else {
-                await failVirtualHID(for: id)
+            if let (vhid, session) = makeVirtualHID(for: record, modeID: modeID) {
+                await vhid.activate()
+                devices[id]?.virtualHID = vhid
+                devices[id]?.session = session
+                devices[id]?.activeOutputModeID = modeID
+                startDispatch(for: id)
+                await applySecondaryInputs(for: id, modeID: modeID)
                 return
             }
-            await vhid.activate()
-            devices[id]?.virtualHID = vhid
-            devices[id]?.session = session
-            devices[id]?.activeOutputModeID = modeID
-            startDispatch(for: id)
-            await applySecondaryInputs(for: id, modeID: modeID)
-            return
+            rumbleRefreshBoxes[id]?.cancel()
+            rumbleRefreshBoxes[id] = nil
+            stderrLog("[hid] couldn't create virtual HID for \(id.raw); falling back to DSU")
         }
         activateDSUOutput(for: id, modeID: modeID)
     }
@@ -335,7 +336,9 @@ extension BridgeCoordinator {
         rumbleRefreshBoxes[id] = nil
         try? await Task.sleep(for: .milliseconds(150))
         guard let (vhid, session) = makeVirtualHID(for: record, modeID: modeID) else {
-            await failVirtualHID(for: id)
+            rumbleRefreshBoxes[id]?.cancel()
+            rumbleRefreshBoxes[id] = nil
+            activateDSUOutput(for: id, modeID: modeID)
             return
         }
         await vhid.activate()
