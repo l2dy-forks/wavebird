@@ -37,8 +37,7 @@ Not yet supported: Charging Grip and USB connections.
 2. Open the DMG and drag **WaveBird.app** to **Applications**.
 
 The app is signed and notarized by Apple, so it launches without a Gatekeeper
-warning. You can also check for updates from within the app
-(*WaveBird → Check for Updates…*).
+warning.
 
 ### Verifying the download
 

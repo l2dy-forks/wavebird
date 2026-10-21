@@ -12,11 +12,6 @@ struct WaveBirdApp: App {
         }
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(openInBackground ? .suppressed : .automatic)
-        .commands {
-            CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") { UpdateChecker.check(userInitiated: true) }
-            }
-        }
 
         WindowGroup("Controller", id: "controller-detail", for: String.self) { $entryID in
             if let entryID {

@@ -71,7 +71,6 @@ struct MenuBarContent: View {
             NSApp.activate(ignoringOtherApps: true)
             openSettings()
         }
-        Button("Check for Updates…") { UpdateChecker.check(userInitiated: true) }
         Button("Quit") { NSApp.terminate(nil) }
     }
 
