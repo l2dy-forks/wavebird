@@ -10,7 +10,7 @@ enum OutputBackend: String, Sendable, Equatable {
     static let defaultsKey = "WaveBird.outputBackend"
 
     static var configured: OutputBackend {
-        UserDefaults.standard.string(forKey: defaultsKey).flatMap(OutputBackend.init(rawValue:)) ?? .virtualHID
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(OutputBackend.init(rawValue:)) ?? .dsu
     }
 }
 
