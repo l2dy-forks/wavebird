@@ -181,18 +181,7 @@ extension BridgeCoordinator {
                 devices[id]?.outputModeID = profile.baseModeID
                 devices[id]?.mappingProfileID = profile.id
                 seedMappingSpec(for: id, profile: profile)
-                if let r = devices[id], let (vhid, session) = makeVirtualHID(for: r, modeID: profile.baseModeID) {
-                    await vhid.activate()
-                    devices[id]?.virtualHID = vhid
-                    devices[id]?.session = session
-                    devices[id]?.activeOutputModeID = profile.baseModeID
-                    startDispatch(for: id)
-                    await applySecondaryInputs(for: id, modeID: profile.baseModeID)
-                } else {
-                    if let r = devices[id] { refreshKnownController(for: r) }
-                    await failVirtualHID(for: id)
-                    return
-                }
+                await activateOutput(for: id, modeID: profile.baseModeID)
                 if let updated = devices[id] {
                     refreshKnownController(for: updated)
                     maybePromptForPairing(record: updated)

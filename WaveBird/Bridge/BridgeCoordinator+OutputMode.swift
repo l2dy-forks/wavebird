@@ -28,23 +28,25 @@ extension BridgeCoordinator {
             }
         }
         seedMappingSpec(for: id, profile: profile)
-        guard let r = devices[id] else { return }
-        if let (vhid, session) = makeVirtualHID(for: r, modeID: profile.baseModeID) {
-            await vhid.activate()
-            devices[id]?.virtualHID = vhid
-            devices[id]?.session = session
-            devices[id]?.activeOutputModeID = profile.baseModeID
-            startDispatch(for: id)
-            await applySecondaryInputs(for: id, modeID: profile.baseModeID)
-        } else {
-            await failVirtualHID(for: id)
-            advanceAwaitingProfileSelection()
-            return
-        }
+        await activateOutput(for: id, modeID: profile.baseModeID)
         if let updated = devices[id] {
             maybePromptForPairing(record: updated)
         }
         advanceAwaitingProfileSelection()
+    }
+
+    func activateOutput(for id: DeviceID, modeID: String) async {
+        guard let record = devices[id],
+              let (vhid, session) = makeVirtualHID(for: record, modeID: modeID) else {
+            await failVirtualHID(for: id)
+            return
+        }
+        await vhid.activate()
+        devices[id]?.virtualHID = vhid
+        devices[id]?.session = session
+        devices[id]?.activeOutputModeID = modeID
+        startDispatch(for: id)
+        await applySecondaryInputs(for: id, modeID: modeID)
     }
 
     func dismissProfilePicker() async {
