@@ -1,16 +1,16 @@
 # WaveBird
 
-A macOS app that bridges Nintendo Switch 2 controllers to a virtual HID gamepad,
-so games and other apps can use them as standard controllers. Tested with Apple
-Game Controller framework apps, SDL-based apps (Steam, Dolphin), and the web
-Gamepad API.
+A macOS app that connects Nintendo Switch 2 controllers over Bluetooth LE and
+exposes them through a cemuhook/DSU server. DSU clients such as Dolphin and Cemu
+can read up to four logical pads; Ryujinx can consume their motion data.
 
 Switch 2 controllers don't pair via the standard Bluetooth Security Manager
 Protocol and don't expose HID over GATT — they speak Nintendo's proprietary
 profile over a vendor BLE service. macOS therefore can't pair or use them
 natively. WaveBird connects via CoreBluetooth, parses the proprietary report
-format into a canonical state, and re-publishes each controller as a virtual
-HID gamepad through CoreHID.
+format into a canonical state, and serves it at `127.0.0.1:26760` over UDP.
+DSU is the default output and does not require Accessibility permission or the
+restricted virtual-HID entitlement.
 
 ## Status
 
@@ -21,7 +21,7 @@ Early. Currently supports:
 - **Nintendo Switch 2 Pro Controller** over Bluetooth LE — analog sticks,
   all buttons including Home and Capture, Rumble and Motion
 - **Nintendo Switch 2 Joy-Con (L / R)** over Bluetooth LE — used as a merged
-  L + R pair that presents as a single gamepad, or each side on its own.
+  L + R DSU pad, or each side on its own DSU slot.
   Sticks, all buttons, Rumble and Motion. Attach the second side and WaveBird
   forms the pair automatically; split them back into solo controllers anytime.
 - **Bluetooth pairing** — WaveBird remembers controllers across launches, so
@@ -49,10 +49,11 @@ built by this repo's release workflow before installing:
 gh attestation verify --repo murphyjt/wavebird WaveBird-<version>.dmg
 ```
 
-## Output profiles
+## Controller mappings and legacy HID profiles
 
-Each connected controller can present as a different virtual gamepad. Open the
-controller card and use the "Use profile" picker on the General tab to switch:
+Open a controller card and use the "Use profile" picker on the General tab to
+choose its button-mapping profile. Built-in profiles retain the existing HID
+presentation names because they also define the available mapping controls:
 
 | Profile | Rumble | Motion | Notes |
 |---|---|---|---|
@@ -62,7 +63,10 @@ controller card and use the "Use profile" picker on the General tab to switch:
 | **Xbox Wireless Controller** | ✅ | — | Recommended |
 
 The selection persists per-controller (by serial) across reconnects, and can
-be changed while the controller is offline.
+be changed while the controller is offline. Custom button mappings feed DSU
+output. The listed HID presentations remain compiled for compatibility, but
+this build omits the restricted virtual-HID entitlement; DSU remains the
+default and silent fallback.
 
 The General tab also has a Sticks section for inverting the left and/or right
 stick Y-axis. Per-controller rumble tuning (intensity, preset, per-band
@@ -70,8 +74,10 @@ frequency and amplitude) lives on the Haptics tab. All controller settings
 persist per controller (by serial), so each physical controller carries its
 own configuration across re-pairings.
 
-These profiles appear in *System Settings → Game Controllers*, where they can
-be remapped and customized.
+DSU pads do not appear as macOS game controllers. Configure your emulator to use
+the DSU server at `127.0.0.1:26760`. A merged Joy-Con pair uses one slot; split
+Joy-Cons use two slots with distinct identities. The server supports four
+logical pads total.
 
 ## Requirements
 
@@ -88,11 +94,8 @@ Or open `WaveBird.xcodeproj` in Xcode and run.
 
 ## Permissions
 
-WaveBird needs two privacy permissions the first time it runs. macOS may prompt
-for them automatically, or you can grant them manually:
-
-**System Settings → Privacy & Security → Accessibility** — required to publish
-a virtual HID gamepad.
+WaveBird needs Bluetooth access to scan for and connect to controllers. macOS
+may prompt automatically, or you can grant it manually:
 
 **System Settings → Privacy & Security → Bluetooth** — required to scan for and
 connect to controllers.
@@ -100,10 +103,10 @@ connect to controllers.
 If a permission prompt appears, click **Allow**. If WaveBird is listed but
 unchecked, check it and relaunch.
 
-> **Note:** If you granted permissions for a previous version and the virtual
-> gamepad stopped appearing after updating, open **Privacy & Security →
-> Accessibility**, remove WaveBird, and re-add it — macOS sometimes doesn't
-> re-validate an existing entry after a binary update.
+The default DSU backend does not request Accessibility access. DSU uses the
+loopback network listener on `127.0.0.1:26760`; if another process owns that
+port, WaveBird will still connect and pair controllers, but DSU output is
+unavailable until the port is free.
 
 ## Use
 
@@ -117,13 +120,12 @@ unchecked, check it and relaunch.
    need SYNC. **Pairing overwrites the controller's Nintendo Switch 2 console
    pairing** — to use it on the console again you'll need to hold SYNC there.
 5. Click the controller card to open its settings — pick a virtual gamepad
-   profile, invert stick axes (General), or tune rumble (Haptics). Use the
+  mapping profile, invert stick axes (General), or tune rumble (Haptics). Use the
    "Forget This Device…" button to drop WaveBird's record of a pairing; the
    controller keeps its stored key until you pair it with something else.
 
-The virtual gamepad is visible to apps that use the Game Controller framework
-or the WebHID / Gamepad APIs (Chrome / Safari gamepad testers like
-[lizardbyte gamepad-tester](https://app.lizardbyte.dev/gamepad-tester/)).
+DSU input is consumed by compatible emulators and tools; it is not presented to
+macOS Game Controller or browser Gamepad APIs by default.
 
 ## Credits
 
