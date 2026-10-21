@@ -67,10 +67,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         launch.refresh()
-        // The user coming back (e.g. from granting the permission in System
-        // Settings) is an intentional retry — lift the post-failure
-        // auto-connect suppression so the next advertisement connects.
-        coordinator.clearVHIDFailureCooldowns()
     }
 
     @objc private func windowDidBecomeKey(_ n: Notification) {

@@ -16,17 +16,8 @@ final class BridgeCoordinator {
     /// Cleared when the transport becomes available again.
     var transportUnavailableReason: String?
     /// Legacy permission-banner state for manually selected virtual-HID output.
-    /// Legacy permission-banner state for virtual-HID output.
+    /// The default DSU path never requests Accessibility or sets this value.
     var hidAccessIssue: HIDAccessIssue?
-
-    @ObservationIgnored
-    var vhidFailureCooldowns: [DeviceID: ContinuousClock.Instant] = [:]
-
-    func clearVHIDFailureCooldowns() {
-        guard !vhidFailureCooldowns.isEmpty else { return }
-        vhidFailureCooldowns.removeAll()
-        Task { await rescanAfterVHIDFailureCooldown() }
-    }
 
     var pairingPrompt: PairingPrompt?
     // The device whose ProfilePickerSheet is currently being shown. Updated via

@@ -127,15 +127,6 @@ extension BridgeCoordinator {
     func handle(_ event: TransportEvent, kind: TransportKind) async {
         switch event {
         case .discovered(let id, let info):
-            // A device whose VHID just failed to create re-advertises the
-            // instant failVirtualHID drops the link; auto-connecting again
-            // would fail identically, in a tight loop (connect → init
-            // handshake → fail → disconnect → re-advertise) that floods the
-            // logs and starves the main actor. Skip it — cooldown expiry or
-            // the app coming forward retries via rescanAfterVHIDFailureCooldown.
-            if let until = vhidFailureCooldowns[id], ContinuousClock.now < until {
-                return
-            }
             if let existing = devices[id] {
                 // Re-discovery: only re-attempt connect if not already in flight.
                 switch existing.connectionState {
@@ -178,7 +169,7 @@ extension BridgeCoordinator {
             guard let record = devices[id] else { return }
             // Joy-Cons take a separate path: solo Joy-Con play promotes via
             // handleJoyConReady. LTK pairing for each Joy-Con is deferred
-            // until after its VHID activates (inside activateJoyConPair or
+            // until after its output activates (inside activateJoyConPair or
             // promoteSoloJoyCon) — keeps the profile picker before the
             // pair prompt, consistent with non-Joy-Con ordering.
             if JoyConPairProfile.isJoyCon(productID: record.advertisement.productID) {
@@ -186,14 +177,14 @@ extension BridgeCoordinator {
                 await handleJoyConReady(id: id)
                 return
             }
-            // Profile-first: build VHID (or arm the picker) immediately, then
+            // Profile-first: activate output (or arm the picker) immediately, then
             // raise the LTK-pair prompt as a follow-up. .commandResponse
             // events have already populated serial / onDeviceHostAddresses
             // if the flash reads succeeded.
             if let serial = record.serial,
                let preferredID = knownControllers[serial]?.resolvedProfileID {
                 // Known preference — resolve the profile, seed the mapping
-                // spec, and create the VHID for its base mode immediately.
+                // spec, and activate the selected backend for its base mode.
                 let profile = resolveMappingProfile(id: preferredID)
                 devices[id]?.outputModeID = profile.baseModeID
                 devices[id]?.mappingProfileID = profile.id
@@ -204,7 +195,7 @@ extension BridgeCoordinator {
                     maybePromptForPairing(record: updated)
                 }
             } else {
-                // No stored preference — ask the user before creating the VHID.
+                // No stored preference — ask the user to choose a mapping profile.
                 devices[id]?.awaitingProfileSelection = true
                 if let updated = devices[id] {
                     refreshKnownController(for: updated)
@@ -244,7 +235,7 @@ extension BridgeCoordinator {
             devices[id]?.awaitingProfileSelection = false
             advanceAwaitingProfileSelection()
             // Joy-Con pair lifecycle: if either side drops, tear down the
-            // shared VHID and reset the surviving side to waiting-for-partner
+            // shared output and reset the surviving side to waiting-for-partner
             // (if it's still .ready). The .disconnected record stays in
             // devices so it can be re-discovered on press-to-reconnect.
             if let pair = joyConPair, pair.includes(id) {
@@ -269,7 +260,7 @@ extension BridgeCoordinator {
             mappingSpecBoxes[id] = nil
             testRumbleTasks[id]?.cancel()
             testRumbleTasks[id] = nil
-            // Preserve a .failed marking (VHID failure, connect timeout) so
+            // Preserve a .failed marking (connect timeout) so
             // the row keeps showing why the controller dropped; reconnecting
             // overwrites it via .discovered → .connecting as usual.
             switch devices[id]?.connectionState {

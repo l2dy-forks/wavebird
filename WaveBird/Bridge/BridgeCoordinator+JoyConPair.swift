@@ -94,10 +94,9 @@ extension BridgeCoordinator {
 
     // Symmetric to tearDownJoyConPair but for a single solo output. Emits an
     // explicit stop frame so the motor doesn't hang in the gap before
-    // anything new comes up. No-op if there is no live VHID.
+    // anything new comes up. DSU slots are released even when no VHID exists.
     func tearDownSoloJoyCon(id: DeviceID) async {
-        guard devices[id]?.virtualHID != nil else { return }
-        if let record = devices[id],
+        if devices[id]?.virtualHID != nil, let record = devices[id],
            let stopPayload = record.profile.encodeRumble(
                RumbleCommand(),
                sequence: rumbleRefreshBoxes[id]?.nextCounter() ?? 0,
@@ -109,8 +108,10 @@ extension BridgeCoordinator {
         stateContinuations[id]?.finish(); stateContinuations[id] = nil
         rumbleRefreshBoxes[id]?.cancel(); rumbleRefreshBoxes[id] = nil
         mappingSpecBoxes[id] = nil
+        dsuOutput.release(device: id)
         devices[id]?.virtualHID = nil
         devices[id]?.session = nil
+        devices[id]?.dsuActive = false
     }
 
     // True when at least one .ready Joy-Con isn't currently in the active
@@ -323,6 +324,10 @@ extension BridgeCoordinator {
         stateContinuations[pair.rightID]?.finish(); stateContinuations[pair.rightID] = nil
         rumbleRefreshBoxes[pair.leftID]?.cancel(); rumbleRefreshBoxes[pair.leftID] = nil
         rumbleRefreshBoxes[pair.rightID]?.cancel(); rumbleRefreshBoxes[pair.rightID] = nil
+        dsuOutput.release(device: pair.leftID)
+        dsuOutput.release(device: pair.rightID)
+        devices[pair.leftID]?.dsuActive = false
+        devices[pair.rightID]?.dsuActive = false
         pair.virtualHID = nil
         pair.session = nil
         pair.dsuActive = false

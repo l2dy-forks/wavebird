@@ -35,43 +35,6 @@ extension BridgeCoordinator {
         advanceAwaitingProfileSelection()
     }
 
-    func activateOutput(for id: DeviceID, modeID: String) async {
-        guard let record = devices[id] else { return }
-        dsuOutput.release(device: id)
-        devices[id]?.dsuActive = false
-        if outputBackend == .virtualHID {
-            if let (vhid, session) = makeVirtualHID(for: record, modeID: modeID) {
-                await vhid.activate()
-                devices[id]?.virtualHID = vhid
-                devices[id]?.session = session
-                devices[id]?.activeOutputModeID = modeID
-                startDispatch(for: id)
-                await applySecondaryInputs(for: id, modeID: modeID)
-                return
-            }
-            rumbleRefreshBoxes[id]?.cancel()
-            rumbleRefreshBoxes[id] = nil
-            stderrLog("[hid] couldn't create virtual HID for \(id.raw); falling back to DSU")
-        }
-        activateDSUOutput(for: id, modeID: modeID)
-    }
-
-    func activateDSUOutput(for id: DeviceID, modeID: String) {
-        guard let record = devices[id] else { return }
-        let identity = record.serial ?? record.id.raw.uuidString
-        let attached = dsuOutput.attach(.solo(identity), devices: [id])
-        if rumbleRefreshBoxes[id] == nil { rumbleRefreshBoxes[id] = RumbleRefreshBox() }
-        devices[id]?.virtualHID = nil
-        devices[id]?.session = nil
-        devices[id]?.dsuActive = attached
-        devices[id]?.activeOutputModeID = modeID
-        if attached {
-            startDispatch(for: id)
-        } else {
-            stderrLog("[dsu] no free slot for \(identity)")
-        }
-    }
-
     func dismissProfilePicker() async {
         guard let id = awaitingProfileSelectionID else { return }
         await activateWithProfile(MappingProfile.defaultProfileID(forModeID: defaultOutputModeID), for: id)
@@ -158,6 +121,48 @@ extension BridgeCoordinator {
         catalog.resolved(id: modeID).makeProfile(record.profile)
     }
 
+    // Activate the selected backend. A VHID creation failure is non-fatal:
+    // tear down its partial session state and continue through DSU so the BLE
+    // connection and the controller's pairing prompt remain usable.
+    func activateOutput(for id: DeviceID, modeID: String) async {
+        guard let record = devices[id] else { return }
+        dsuOutput.release(device: id)
+        devices[id]?.dsuActive = false
+
+        if outputBackend == .virtualHID {
+            if let (vhid, session) = makeVirtualHID(for: record, modeID: modeID) {
+                await vhid.activate()
+                devices[id]?.virtualHID = vhid
+                devices[id]?.session = session
+                devices[id]?.activeOutputModeID = modeID
+                startDispatch(for: id)
+                await applySecondaryInputs(for: id, modeID: modeID)
+                return
+            }
+            rumbleRefreshBoxes[id]?.cancel()
+            rumbleRefreshBoxes[id] = nil
+            stderrLog("[hid] couldn't create virtual HID for \(id.raw); falling back to DSU")
+        }
+
+        activateDSUOutput(for: id, modeID: modeID)
+    }
+
+    func activateDSUOutput(for id: DeviceID, modeID: String) {
+        guard let record = devices[id] else { return }
+        let identity = record.serial ?? record.id.raw.uuidString
+        let attached = dsuOutput.attach(.solo(identity), devices: [id])
+        if rumbleRefreshBoxes[id] == nil { rumbleRefreshBoxes[id] = RumbleRefreshBox() }
+        devices[id]?.virtualHID = nil
+        devices[id]?.session = nil
+        devices[id]?.dsuActive = attached
+        devices[id]?.activeOutputModeID = modeID
+        if attached {
+            startDispatch(for: id)
+        } else {
+            stderrLog("[dsu] no free slot for \(identity)")
+        }
+    }
+
     // Tell the transport which optional secondary input channels the resolved
     // output mode needs (e.g. ns2Passthrough wants Pro's Report 0x09). Called
     // whenever a mode activates or changes; for modes that need none (every
@@ -190,46 +195,7 @@ extension BridgeCoordinator {
             }
         ) else { return nil }
         hidAccessIssue = nil
-        vhidFailureCooldowns[record.id] = nil
         return (vhid, session)
-    }
-
-    // Shared failure path for every VHID creation site. A failed VHID leaves
-    // the BLE link up but useless, and creation is only retried on the next
-    // .ready — so drop the link: after fixing the permission, a button press
-    // reconnects and retries. Also records the issue for the banner (set
-    // here, not in makeVirtualHID, so the pair path is covered too).
-    func failVirtualHID(for id: DeviceID) async {
-        hidAccessIssue = HIDAccessIssue.current()
-        devices[id]?.connectionState = .failed("Couldn't create virtual HID device")
-        let until = ContinuousClock.now.advanced(by: .seconds(60))
-        vhidFailureCooldowns[id] = until
-        // Self-expire: accessory mode never posts didBecomeActive, so the
-        // activation-driven clear can't be the only retry trigger. Skipped
-        // if a wholesale clear or a newer failure superseded this deadline.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(until: until, clock: .continuous)
-            guard let self, self.vhidFailureCooldowns[id] == until else { return }
-            self.vhidFailureCooldowns[id] = nil
-            await self.rescanAfterVHIDFailureCooldown()
-        }
-        await transport(for: id.transport)?.disconnect(id)
-    }
-
-    // Lifting a cooldown must not wait for a fresh advertisement: with
-    // duplicate filtering on, CoreBluetooth coalesces discoveries per scan
-    // session, so the .discovered swallowed during the cooldown may have been
-    // the only one this session. Restarting discovery opens a new session — a
-    // still-advertising controller re-fires .discovered immediately, a
-    // sleeping one on its next button press — and the normal
-    // discovered → connect path (with its calibrated timeout) does the rest.
-    func rescanAfterVHIDFailureCooldown() async {
-        guard isScanning else { return }
-        let matchers = allScanMatchers()
-        for t in transports {
-            await t.stopDiscovery()
-            await t.startDiscovery(matchers: matchers)
-        }
     }
 
     // Always-on diagnostic log for output reports the host sends us.
@@ -344,6 +310,7 @@ extension BridgeCoordinator {
         await vhid.activate()
         devices[id]?.virtualHID = vhid
         devices[id]?.session = session
+        devices[id]?.dsuActive = false
         devices[id]?.activeOutputModeID = modeID
         // The dispatch task captures vhid/session by value, so it must be
         // restarted against the freshly-built VHID — otherwise it keeps
