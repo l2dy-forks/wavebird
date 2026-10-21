@@ -148,7 +148,7 @@ struct JoyConProfile: ControllerProfile {
             triggerL:   0,
             triggerR:   0,
             buttons:    buttons,
-            imu:        nil,
+            imu:        NS2Report0x05.parseIMU(d.imuSlice),
             timestamp:  .now,
             shoulders:  shoulders
         )
