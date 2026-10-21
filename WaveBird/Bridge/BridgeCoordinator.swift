@@ -16,7 +16,7 @@ final class BridgeCoordinator {
     /// Cleared when the transport becomes available again.
     var transportUnavailableReason: String?
     /// Legacy permission-banner state for manually selected virtual-HID output.
-    /// The default DSU path never requests Accessibility or sets this value.
+    /// Legacy permission-banner state for virtual-HID output.
     var hidAccessIssue: HIDAccessIssue?
 
     @ObservationIgnored
@@ -47,7 +47,6 @@ final class BridgeCoordinator {
     // Class-instance reads aren't observed; set explicitly when the pair's
     // selected output backend activates or tears down.
     var joyConPairOutputActive: Bool = false
-    var joyConPairVHIDActive: Bool = false
     // Synthetic profile used for the merged Joy-Con pair's output identity.
     let joyConPairProfile = JoyConPairProfile()
     let dsuOutput: DSUOutput

@@ -58,10 +58,10 @@ extension BridgeCoordinator {
         await promoteSoloJoyCon(id: rightID)
     }
 
-    // Build (or rebuild) the solo VHID for a single Joy-Con. Used when a
+    // Build (or rebuild) the solo output for a single Joy-Con. Used when a
     // pair is split, when a sibling reconnects after a split, and when the
     // user dismisses the waiting-for-partner sheet. Stored preference goes
-    // straight to a VHID; absence queues the profile picker.
+    // straight to the selected backend; absence queues the profile picker.
     func promoteSoloJoyCon(id: DeviceID) async {
         guard let record = devices[id], record.connectionState == .ready else { return }
         guard JoyConPairProfile.isJoyCon(productID: record.advertisement.productID) else { return }
@@ -92,9 +92,9 @@ extension BridgeCoordinator {
         }
     }
 
-    // Symmetric to tearDownJoyConPair but for a single solo VHID. Emits an
+    // Symmetric to tearDownJoyConPair but for a single solo output. Emits an
     // explicit stop frame so the motor doesn't hang in the gap before
-    // anything new comes up. No-op if there's no live VHID.
+    // anything new comes up. No-op if there is no live VHID.
     func tearDownSoloJoyCon(id: DeviceID) async {
         guard devices[id]?.virtualHID != nil else { return }
         if let record = devices[id],
@@ -179,10 +179,8 @@ extension BridgeCoordinator {
         }
     }
 
-    // Create the merged VHID for the active pair and start the merged dispatch
-    // path. Per-side dispatch tasks update the pair's left/right snapshot and
-    // emit a single merged report; rumble is split per-side and written to
-    // each Joy-Con's vibration char.
+    // Create the merged output for the active pair and start the merged
+    // dispatch path. Per-side dispatch tasks update one shared logical pad.
     func activateJoyConPair(profileID: String) async {
         guard let pair = joyConPair,
               let left = devices[pair.leftID],
@@ -217,61 +215,73 @@ extension BridgeCoordinator {
             return
         }
 
-        let outProfile = catalog.resolved(id: modeID).makeProfile(joyConPairProfile)
-        // "Lserial+Rserial" (joyConPairSerial), not one side's serial: a merged
-        // pair and a solo left Joy-Con are different logical devices, and
-        // gamecontrollerd would otherwise file them under the same record.
-        let serial = joyConPairSerial() ?? left.serial ?? right.serial
-        let session = outProfile.makeSession(deviceSerial: serial)
-
-        // Both Joy-Con encoders read tuning from the same paired-profile
-        // RumbleSettings — the merged detail-card binding writes once and
-        // both motors feel the change.
-        let sharedSettings = pairRumbleSettings()
-        let onSetReport = makePairSetReportHandler(
-            pair: pair,
-            leftProfile: left.profile,
-            rightProfile: right.profile,
-            leftSettings: sharedSettings,
-            rightSettings: sharedSettings,
-            session: session
-        )
-
-        guard let vhid = VirtualHIDDevice(
-            descriptor: outProfile.descriptor,
-            vendorID: outProfile.vendorID,
-            productID: outProfile.productID,
-            productName: outProfile.productName,
-            manufacturer: outProfile.manufacturer,
-            versionNumber: outProfile.versionNumber,
-            serialNumber: VirtualHIDDevice.hidSerialNumber(deviceSerial: serial, modeID: modeID),
-            transport: .usb,
-            onSetReport: onSetReport,
-            onGetReport: { type, id, maxSize in
-                await session.handleGetReport(type: type, id: id, maxSize: maxSize)
-            }
-        ) else {
-            // Drop the half-formed pair immediately — a non-nil joyConPair
-            // slot implies a live VHID (see the property comment), and waiting
-            // for the two .disconnected events to tear it down leaves that
-            // invariant transiently false. Teardown first also keeps the
-            // survivor-requeue logic in the .disconnected handler from seeing
-            // the pair. Both sides are marked failed either way.
-            tearDownJoyConPair()
-            await failVirtualHID(for: pair.leftID)
-            await failVirtualHID(for: pair.rightID)
-            return
-        }
-        hidAccessIssue = nil
-        vhidFailureCooldowns[pair.leftID] = nil
-        vhidFailureCooldowns[pair.rightID] = nil
-        await vhid.activate()
-        pair.virtualHID = vhid
-        pair.session = session
-        pair.activeOutputModeID = modeID
         pair.mappingProfileID = profile.id
         pairMappingSpecBox.update(ResolvedMappingSpec.resolve(profile: profile))
-        joyConPairVHIDActive = true
+
+        var activatedVHID = false
+        if outputBackend == .virtualHID {
+            let outProfile = catalog.resolved(id: modeID).makeProfile(joyConPairProfile)
+            // L+R identity, not one side's serial: a merged pad must not reuse
+            // either solo Joy-Con's host identity.
+            let serial = joyConPairSerial() ?? left.serial ?? right.serial
+            let session = outProfile.makeSession(deviceSerial: serial)
+            let sharedSettings = pairRumbleSettings()
+            let onSetReport = makePairSetReportHandler(
+                pair: pair,
+                leftProfile: left.profile,
+                rightProfile: right.profile,
+                leftSettings: sharedSettings,
+                rightSettings: sharedSettings,
+                session: session
+            )
+
+            if let vhid = VirtualHIDDevice(
+                descriptor: outProfile.descriptor,
+                vendorID: outProfile.vendorID,
+                productID: outProfile.productID,
+                productName: outProfile.productName,
+                manufacturer: outProfile.manufacturer,
+                versionNumber: outProfile.versionNumber,
+                serialNumber: VirtualHIDDevice.hidSerialNumber(deviceSerial: serial, modeID: modeID),
+                transport: .usb,
+                onSetReport: onSetReport,
+                onGetReport: { type, id, maxSize in
+                    await session.handleGetReport(type: type, id: id, maxSize: maxSize)
+                }
+            ) {
+                hidAccessIssue = nil
+                await vhid.activate()
+                dsuOutput.release(device: pair.leftID)
+                pair.virtualHID = vhid
+                pair.session = session
+                pair.dsuActive = false
+                pair.activeOutputModeID = modeID
+                activatedVHID = true
+            } else {
+                rumbleRefreshBoxes[pair.leftID]?.cancel()
+                rumbleRefreshBoxes[pair.leftID] = nil
+                rumbleRefreshBoxes[pair.rightID]?.cancel()
+                rumbleRefreshBoxes[pair.rightID] = nil
+                stderrLog("[hid] couldn't create virtual HID for Joy-Con pair; falling back to DSU")
+            }
+        }
+
+        if !activatedVHID {
+            let leftIdentity = left.serial ?? left.id.raw.uuidString
+            let rightIdentity = right.serial ?? right.id.raw.uuidString
+            pair.dsuActive = dsuOutput.attach(
+                .joyConPair(leftIdentity, rightIdentity),
+                devices: [pair.leftID, pair.rightID]
+            )
+            pair.virtualHID = nil
+            pair.session = nil
+            pair.activeOutputModeID = modeID
+            if rumbleRefreshBoxes[pair.leftID] == nil { rumbleRefreshBoxes[pair.leftID] = RumbleRefreshBox() }
+            if rumbleRefreshBoxes[pair.rightID] == nil { rumbleRefreshBoxes[pair.rightID] = RumbleRefreshBox() }
+            if !pair.dsuActive { stderrLog("[dsu] no free slot for Joy-Con pair") }
+        }
+
+        joyConPairOutputActive = pair.outputActive
         startPairDispatch(for: pair.leftID)
         startPairDispatch(for: pair.rightID)
 
@@ -306,8 +316,7 @@ extension BridgeCoordinator {
 
     func tearDownJoyConPair() {
         guard let pair = joyConPair else { return }
-        // Cancel both per-side dispatch tasks so they don't fire against a
-        // disposed VHID. The per-side rumble refresh boxes are released too.
+        // Cancel both per-side dispatch tasks before disposing the shared output.
         dispatchTasks[pair.leftID]?.cancel(); dispatchTasks[pair.leftID] = nil
         dispatchTasks[pair.rightID]?.cancel(); dispatchTasks[pair.rightID] = nil
         stateContinuations[pair.leftID]?.finish(); stateContinuations[pair.leftID] = nil
@@ -316,9 +325,10 @@ extension BridgeCoordinator {
         rumbleRefreshBoxes[pair.rightID]?.cancel(); rumbleRefreshBoxes[pair.rightID] = nil
         pair.virtualHID = nil
         pair.session = nil
+        pair.dsuActive = false
         pairMappingSpecBox.update(.identity)
         joyConPair = nil
-        joyConPairVHIDActive = false
+        joyConPairOutputActive = false
     }
 
     // True if the device belongs to the currently-active Joy-Con pair.

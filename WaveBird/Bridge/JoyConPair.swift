@@ -13,6 +13,7 @@ final class JoyConPair: @unchecked Sendable {
     let leftID: DeviceID
     let rightID: DeviceID
     var virtualHID: VirtualHIDDevice?
+    var dsuActive = false
     var session: (any HIDOutputSession)?
     var activeOutputModeID: String = ""
     // Mapping profile driving the merged VHID (activeOutputModeID stays the
@@ -20,6 +21,8 @@ final class JoyConPair: @unchecked Sendable {
     var mappingProfileID: String? = nil
     var leftState: ControllerState = .zero
     var rightState: ControllerState = .zero
+
+    var outputActive: Bool { virtualHID != nil || dsuActive }
 
     init(leftID: DeviceID, rightID: DeviceID) {
         self.leftID = leftID

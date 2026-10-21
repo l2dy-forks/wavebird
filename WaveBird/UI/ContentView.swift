@@ -241,7 +241,7 @@ struct ContentView: View {
                             paired: entry.paired,
                             isOutputActive: entry.outputActive,
                             displayNameOverride: isPairLeft ? coordinator.listDisplayName(for: entry) : nil,
-                            outputActiveOverride: isPairLeft ? coordinator.joyConPairVHIDActive : nil,
+                            outputActiveOverride: isPairLeft ? coordinator.joyConPairOutputActive : nil,
                             onSplit: isPairLeft ? {
                                 Task { await coordinator.splitJoyConPair() }
                                 // The detail window keys off this entry's L serial.

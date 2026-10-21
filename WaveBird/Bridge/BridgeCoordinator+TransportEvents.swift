@@ -85,18 +85,20 @@ extension BridgeCoordinator {
     func startPairDispatch(for id: DeviceID) {
         dispatchTasks[id]?.cancel()
         stateContinuations[id]?.finish()
-        guard let record = devices[id] else { return }
+        guard let record = devices[id], let pair = joyConPair, pair.includes(id) else { return }
         let profile = record.profile
         let calibration = record.calibration
         let mapBox = pairMappingSpecBox
         let kind = id.transport
+        let dsuOutput = self.dsuOutput
+        let dsuKey = pair.dsuActive ? dsuOutput.key(for: id) : nil
+        guard pair.dsuActive ? dsuKey != nil : (pair.virtualHID != nil && pair.session != nil) else { return }
         let (stream, continuation) = AsyncStream.makeStream(of: RawReport.self, bufferingPolicy: .bufferingNewest(1))
         stateContinuations[id] = continuation
         dispatchTasks[id] = Task { @MainActor [weak self] in
             var lastSig: InputSignature?
             for await raw in stream {
-                guard let self, let pair = self.joyConPair, pair.includes(id),
-                      let vhid = pair.virtualHID, let session = pair.session else { continue }
+                guard let self, let pair = self.joyConPair, pair.includes(id) else { continue }
                 let parsed: ControllerState?
                 switch kind {
                 case .ble: parsed = profile.parseBLEReport(raw.data, calibration: calibration)
@@ -111,6 +113,11 @@ extension BridgeCoordinator {
                 let sig = merged.idleSignature
                 if sig != lastSig { lastSig = sig; self.activityTracker.touch(id, at: .now) }
                 let mapped = merged.applyingMapping(mapBox.current)
+                if let dsuKey {
+                    dsuOutput.publish(mapped, for: dsuKey)
+                    continue
+                }
+                guard let vhid = pair.virtualHID, let session = pair.session else { continue }
                 let report = await session.buildReport(mapped)
                 try? await vhid.dispatch(report)
             }
