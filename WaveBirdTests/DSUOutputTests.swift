@@ -27,6 +27,22 @@ struct DSUOutputTests {
         return Float(bitPattern: bits)
     }
 
+    @Test func dsuFaceButtonsMapByPositionAfterCustomProfileMapping() {
+        var state = ControllerState.zero
+        state.buttons = [.a, .x, .home]
+        let mapped = DSUButtonMapping.applyingPositionMapping(to: state)
+        #expect(mapped.buttons == [.b, .y, .home])
+        #expect(state.buttons == [.a, .x, .home])
+
+        var custom = MappingProfile(id: "custom.ds4", name: "Custom DS4", baseModeID: "dualShock4")
+        custom.mapping["dualShock4.circle"] = .sources([.button(.home)])
+        var profileInput = ControllerState.zero
+        profileInput.buttons = [.home]
+        let profileMapped = profileInput.applyingMapping(.resolve(profile: custom))
+        #expect(profileMapped.buttons == [.a, .home])
+        #expect(DSUButtonMapping.applyingPositionMapping(to: profileMapped).buttons == [.b, .home])
+    }
+
     @Test func logicalKeysHaveStableDistinctLocalMACAddresses() {
         let solo = DSUPadKey.solo("LEFT")
         let pair = DSUPadKey.joyConPair("LEFT", "RIGHT")

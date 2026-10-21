@@ -50,7 +50,10 @@ extension BridgeCoordinator {
                 let sig = state.idleSignature
                 if sig != lastSig { lastSig = sig; tracker.touch(id, at: .now) }
                 if let dsuKey {
-                    dsuOutput.publish(state, for: dsuKey)
+                    dsuOutput.publish(
+                        DSUButtonMapping.applyingPositionMapping(to: state),
+                        for: dsuKey
+                    )
                     continue
                 }
                 guard let vhid, let session else { continue }
@@ -114,7 +117,10 @@ extension BridgeCoordinator {
                 if sig != lastSig { lastSig = sig; self.activityTracker.touch(id, at: .now) }
                 let mapped = merged.applyingMapping(mapBox.current)
                 if let dsuKey {
-                    dsuOutput.publish(mapped, for: dsuKey)
+                    dsuOutput.publish(
+                        DSUButtonMapping.applyingPositionMapping(to: mapped),
+                        for: dsuKey
+                    )
                     continue
                 }
                 guard let vhid = pair.virtualHID, let session = pair.session else { continue }
