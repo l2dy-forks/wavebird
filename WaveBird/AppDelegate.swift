@@ -18,7 +18,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        IOHIDRequestAccess(kIOHIDRequestTypePostEvent)
+        if coordinator.outputBackend == .virtualHID {
+            IOHIDRequestAccess(kIOHIDRequestTypePostEvent)
+        }
 
         let nc = NotificationCenter.default
         nc.addObserver(self,
