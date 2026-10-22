@@ -8,6 +8,7 @@ protocol ControllerProfile: Sendable {
 
     var hidVendorID: UInt16 { get }
     var hidProductID: UInt16 { get }
+    var dsuMotionConvention: DSUMotionConvention { get }
 
     func parseBLEReport(_ data: Data, calibration: ControllerCalibration) -> ControllerState?
     func parseUSBReport(_ data: Data, reportID: UInt8, calibration: ControllerCalibration) -> ControllerState?
@@ -38,6 +39,8 @@ protocol ControllerProfile: Sendable {
 }
 
 extension ControllerProfile {
+    var dsuMotionConvention: DSUMotionConvention { .waveBird }
+
     func encodeRumble(_ cmd: RumbleCommand, sequence: UInt8, settings: RumbleSettings.Snapshot) -> Data? { nil }
 
     var rumbleRefreshInterval: Duration? { nil }

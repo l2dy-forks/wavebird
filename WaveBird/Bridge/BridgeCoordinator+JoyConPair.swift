@@ -272,7 +272,8 @@ extension BridgeCoordinator {
             let rightIdentity = right.serial ?? right.id.raw.uuidString
             pair.dsuActive = dsuOutput.attach(
                 .joyConPair(leftIdentity, rightIdentity),
-                devices: [pair.leftID, pair.rightID]
+                devices: [pair.leftID, pair.rightID],
+                motionConvention: left.profile.dsuMotionConvention
             )
             pair.virtualHID = nil
             pair.session = nil

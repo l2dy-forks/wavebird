@@ -12,6 +12,8 @@ struct JoyConProfile: ControllerProfile {
 
     let side: Side
 
+    var dsuMotionConvention: DSUMotionConvention { .joyCon2Android }
+
     var name: String {
         switch side {
         case .left:  "Joy-Con 2 (L)"

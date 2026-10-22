@@ -36,6 +36,7 @@ struct DSUSlotSnapshot: Sendable {
     let key: DSUPadKey
     let index: UInt8
     let macAddress: Data
+    var motionConvention: DSUMotionConvention
     var state: ControllerState
     var motionTimestampMicros: UInt64
 
@@ -63,7 +64,11 @@ final class DSUOutput: @unchecked Sendable {
     func stop() { server.stop() }
 
     @discardableResult
-    func attach(_ key: DSUPadKey, devices: [DeviceID]) -> Bool {
+    func attach(
+        _ key: DSUPadKey,
+        devices: [DeviceID],
+        motionConvention: DSUMotionConvention = .waveBird
+    ) -> Bool {
         let snapshot = registry.withLock { state -> DSUSlotSnapshot? in
             let slot: UInt8
             if let existing = state.slots[key] {
@@ -76,13 +81,15 @@ final class DSUOutput: @unchecked Sendable {
                 slot = available
             }
 
-            let current = state.slots[key] ?? DSUSlotSnapshot(
+            var current = state.slots[key] ?? DSUSlotSnapshot(
                 key: key,
                 index: slot,
                 macAddress: key.macAddress,
+                motionConvention: motionConvention,
                 state: .zero,
                 motionTimestampMicros: DispatchTime.now().uptimeNanoseconds / 1_000
             )
+            current.motionConvention = motionConvention
             for device in devices { state.devicePads[device] = key }
             state.slots[key] = current
             return current

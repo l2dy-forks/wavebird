@@ -1,5 +1,10 @@
 import Foundation
 
+enum DSUMotionConvention: Sendable, Equatable {
+    case waveBird
+    case joyCon2Android
+}
+
 enum DSUProtocol {
     static let version: UInt16 = 1001
     static let messageVersion: UInt32 = 0x0010_0000
@@ -23,7 +28,8 @@ enum DSUProtocol {
         state: ControllerState,
         sequence: UInt32,
         timestampMicros: UInt64,
-        serverID: UInt32
+        serverID: UInt32,
+        motionConvention: DSUMotionConvention = .waveBird
     ) -> Data {
         var payload = portInfoPayload(slot: slot, info: info)
         payload.append(1) // connected
@@ -76,16 +82,31 @@ enum DSUProtocol {
         payload.append(contentsOf: repeatElement(0, count: 12)) // inactive touch placeholders
         appendLE(timestampMicros, to: &payload)
         if let imu = state.imu {
-            appendFloat(Float(imu.accelX) / 4096, to: &payload)
-            appendFloat(Float(imu.accelY) / 4096, to: &payload)
-            appendFloat(Float(imu.accelZ) / 4096, to: &payload)
-            // Nintendo IMU units are 4096 LSB/g and 0x343B/936 LSB per deg/s.
-            let gyroScale = Float(936.0 / 0x343B)
-            // DSU orders gyro fields as pitch, yaw, roll. ControllerState's
-            // canonical mapping is X=roll, Y=pitch, Z=yaw.
-            appendFloat(Float(imu.gyroY) * gyroScale, to: &payload)
-            appendFloat(Float(imu.gyroZ) * gyroScale, to: &payload)
-            appendFloat(Float(imu.gyroX) * gyroScale, to: &payload)
+            switch motionConvention {
+            case .waveBird:
+                appendFloat(Float(imu.accelX) / 4096, to: &payload)
+                appendFloat(Float(imu.accelY) / 4096, to: &payload)
+                appendFloat(Float(imu.accelZ) / 4096, to: &payload)
+                // Keep the previous Pro/GameCube DSU interpretation unless
+                // their motion frames are validated against joycon2android.
+                let gyroScale = Float(936.0 / 0x343B)
+                appendFloat(Float(imu.gyroY) * gyroScale, to: &payload)
+                appendFloat(Float(imu.gyroZ) * gyroScale, to: &payload)
+                appendFloat(Float(imu.gyroX) * gyroScale, to: &payload)
+            case .joyCon2Android:
+                // NS2Report0x05 stores accel=(rawAy, -rawAx, rawAz) and
+                // gyro=(rawGy, -rawGx, rawGz). Re-express those canonical axes
+                // as joycon2android's raw Report 0x05 -> DSU frame.
+                let accelScale: Float = 0.000244140625
+                let gyroScale: Float = 0.06103515625
+                appendFloat(Float(imu.accelY) * accelScale, to: &payload)
+                appendFloat(-Float(imu.accelZ) * accelScale, to: &payload)
+                appendFloat(Float(imu.accelX) * accelScale, to: &payload)
+                // DSU gyro order is pitch, yaw, roll.
+                appendFloat(-Float(imu.gyroY) * gyroScale, to: &payload)
+                appendFloat(-Float(imu.gyroZ) * gyroScale, to: &payload)
+                appendFloat(Float(imu.gyroX) * gyroScale, to: &payload)
+            }
         } else {
             payload.append(contentsOf: repeatElement(0, count: 24))
         }

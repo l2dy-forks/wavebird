@@ -236,7 +236,8 @@ final class DSUServer: @unchecked Sendable {
             state: snapshot.state,
             sequence: sequence,
             timestampMicros: snapshot.motionTimestampMicros,
-            serverID: serverID
+            serverID: serverID,
+            motionConvention: snapshot.motionConvention
         )
         send(packet, to: address)
     }

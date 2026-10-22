@@ -150,7 +150,11 @@ extension BridgeCoordinator {
     func activateDSUOutput(for id: DeviceID, modeID: String) {
         guard let record = devices[id] else { return }
         let identity = record.serial ?? record.id.raw.uuidString
-        let attached = dsuOutput.attach(.solo(identity), devices: [id])
+        let attached = dsuOutput.attach(
+            .solo(identity),
+            devices: [id],
+            motionConvention: record.profile.dsuMotionConvention
+        )
         if rumbleRefreshBoxes[id] == nil { rumbleRefreshBoxes[id] = RumbleRefreshBox() }
         devices[id]?.virtualHID = nil
         devices[id]?.session = nil

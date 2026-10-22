@@ -68,7 +68,10 @@ struct DSUProtocolTests {
             leftTriggerAnalog: 0x10,
             rightTriggerAnalog: 0x80
         )
-        state.imu = IMUSample(accelX: 4096, accelY: -2048, accelZ: 0, gyroX: 100, gyroY: -100, gyroZ: 0)
+        state.imu = IMUSample(
+            accelX: 4096, accelY: -2048, accelZ: 1024,
+            gyroX: 100, gyroY: -200, gyroZ: 300
+        )
 
         let info = DSUPortInfo(macAddress: Data([2, 10, 20, 30, 40, 50]))
         let packet = DSUProtocol.dataResponse(
@@ -97,11 +100,44 @@ struct DSUProtocolTests {
         #expect(uint32(bytes, at: 68) == 0x0506_0708)
         #expect(float32(bytes, at: 76) == 1)
         #expect(float32(bytes, at: 80) == -0.5)
+        #expect(float32(bytes, at: 84) == 0.25)
         let gyroScale = Float(936.0 / 0x343B)
-        #expect(abs(float32(bytes, at: 88) - Float(-100) * gyroScale) < 0.0001) // pitch = gyroY
-        #expect(float32(bytes, at: 92) == 0) // yaw = gyroZ
-        #expect(abs(float32(bytes, at: 96) - Float(100) * gyroScale) < 0.0001) // roll = gyroX
+        #expect(abs(float32(bytes, at: 88) - Float(-200) * gyroScale) < 0.0001) // pitch = canonical gyro Y
+        #expect(abs(float32(bytes, at: 92) - Float(300) * gyroScale) < 0.0001) // yaw = canonical gyro Z
+        #expect(abs(float32(bytes, at: 96) - Float(100) * gyroScale) < 0.0001) // roll = canonical gyro X
         #expect(checksumIsValid(packet))
+    }
+
+    @Test func rawNS2MotionUsesJoycon2AndroidDSUFrame() {
+        var report = Data(repeating: 0, count: 62)
+        let rawValues: [Int16] = [1_000, -2_000, 3_000, -400, 500, -600]
+        for (index, value) in rawValues.enumerated() {
+            let bits = UInt16(bitPattern: value)
+            report[0x30 + index * 2] = UInt8(bits & 0xFF)
+            report[0x31 + index * 2] = UInt8(bits >> 8)
+        }
+
+        let decoded = NS2Report0x05.decode(report)!
+        var state = ControllerState.zero
+        state.imu = NS2Report0x05.parseIMU(decoded.imuSlice)
+        let packet = DSUProtocol.dataResponse(
+            slot: 0,
+            info: DSUPortInfo(macAddress: Data(repeating: 0, count: 6)),
+            state: state,
+            sequence: 1,
+            timestampMicros: 1,
+            serverID: 1,
+            motionConvention: .joyCon2Android
+        )
+        let bytes = [UInt8](packet)
+        let gyroScale: Float = 0.06103515625
+
+        #expect(float32(bytes, at: 76) == Float(-1_000) / 4096)
+        #expect(float32(bytes, at: 80) == Float(-3_000) / 4096)
+        #expect(float32(bytes, at: 84) == Float(-2_000) / 4096)
+        #expect(abs(float32(bytes, at: 88) - Float(-400) * gyroScale) < 0.0001)
+        #expect(abs(float32(bytes, at: 92) - Float(600) * gyroScale) < 0.0001)
+        #expect(abs(float32(bytes, at: 96) - Float(500) * gyroScale) < 0.0001)
     }
 
     @Test func clientPacketValidationHonorsHeaderLength() {

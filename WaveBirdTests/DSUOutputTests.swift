@@ -15,7 +15,8 @@ struct DSUOutputTests {
             state: snapshot.state,
             sequence: sequence,
             timestampMicros: 1,
-            serverID: 1
+            serverID: 1,
+            motionConvention: snapshot.motionConvention
         ))
     }
 
@@ -25,6 +26,13 @@ struct DSUOutputTests {
             | UInt32(bytes[offset + 2]) << 16
             | UInt32(bytes[offset + 3]) << 24
         return Float(bitPattern: bits)
+    }
+
+    @Test func onlyJoyConProfilesUseJoycon2AndroidMotionFrame() {
+        #expect(JoyConProfile(side: .left).dsuMotionConvention == .joyCon2Android)
+        #expect(JoyConProfile(side: .right).dsuMotionConvention == .joyCon2Android)
+        #expect(ProControllerProfile().dsuMotionConvention == .waveBird)
+        #expect(GameCubeProfile().dsuMotionConvention == .waveBird)
     }
 
     @Test func dsuFaceButtonsMapByPositionAfterCustomProfileMapping() {
@@ -133,7 +141,11 @@ struct DSUOutputTests {
         let leftID = device(30)
         let rightID = device(31)
         let pair = DSUPadKey.joyConPair("LEFT", "RIGHT")
-        #expect(output.attach(pair, devices: [leftID, rightID]))
+        #expect(output.attach(
+            pair,
+            devices: [leftID, rightID],
+            motionConvention: .joyCon2Android
+        ))
 
         var left = ControllerState.zero
         left.leftStick = SIMD2(1024, 512)
@@ -153,9 +165,9 @@ struct DSUOutputTests {
         #expect(packet[36] == 0x09) // minus + options
         #expect(packet[37] == 0x29) // left trigger + right bumper + A
         #expect(packet[40] > 128 && packet[42] < 128)
-        #expect(float32(packet, at: 76) == Float(1) / 4096)
-        #expect(float32(packet, at: 80) == Float(2) / 4096)
-        #expect(float32(packet, at: 84) == Float(3) / 4096)
+        #expect(float32(packet, at: 76) == Float(2) / 4096)
+        #expect(float32(packet, at: 80) == Float(-3) / 4096)
+        #expect(float32(packet, at: 84) == Float(1) / 4096)
     }
 
     @Test func disconnectingEitherPairMemberReleasesSharedPadAndSlotsAreBounded() {
